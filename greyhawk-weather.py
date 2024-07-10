@@ -4,40 +4,25 @@
 import random
 import math
 
-# Starting variables (only change these once and once only)!
-global startingDay
-global startingMonth
-global startingYear
-startingDay = 1
-startingMonth = "needfest"
-startingYear = 576
-
-# DELETE THESE
-global currentmonth
-global currentday
-global terrain
-global latitude
-global sylvanPrompt
-
 # Special variables
 global debug
 global verbose
 global convertFBool
 global convertAMPM
 global customTweaks
-debug = True
-verbose = True
+global sylvanBool
+debug = False
+verbose = False
 convertFBool = True
 convertAMPM = False
-customTweaks = True
+customTweaks = False
+sylvanBool = False
 
 # Global lists
 global dayNameList
 global monthsAll
 global months
 global festivals
-global lunaList
-global celeneList
 dayNameList = [["freeday", "rest"], ["starday", "work"],["sunday", "work"], ["moonday", "work"], ["godsday", "worship"], ["waterday", "work"], ["earthday", "work"]]
 monthsAll = ("needfest", "fireseek", "readying", "coldeven", "growfest", "planting", "flocktime", "wealsun", "richfest", "reaping", "good-month", "harvester", "brewfest", "patchwall", "ready'reat", "sunsebb")
 months = ("fireseek", "readying", "coldeven", "planting", "flocktime", "wealsun", "reaping", "good-month", "harvester", "patchwall", "ready'reat", "sunsebb")
@@ -418,7 +403,7 @@ weatherdict = {
         "continue": 15,
         "rainbow": 10
     },
-    "hurricane": {
+    "cyclone": {
         "amount": lambda: dice(1,10),
         "duration": lambda: (dice(1,8))//2,
         "wind": lambda: dice(7,10)+70,
@@ -558,9 +543,71 @@ specialweatherdict = {
 ##################################
 ## REGULAR FUNCTIONS START HERE ##
 ##################################
+## This function is meant to calculate the month and date from days since startdate.
+def monthDayCalc(dayCountFromStart):
+    dayCount = dayCountFromStart
+    currentDay = 0
+    currentMonth = "needfest"
+    currentYear = 576
+    moonPhaseLuna = round(100*(0.5*(1+math.cos( ( dayCountFromStart - 18 ) * math.pi / 14 ))+math.sin( ( dayCountFromStart - 18 ) * math.pi / 14 )/4))
+    moonPhaseCelene = round(100*(0.5*(1+math.cos( ( dayCountFromStart - 4 ) * math.pi / 45.5))+math.sin( ( dayCountFromStart - 4 ) * math.pi / 45.5 )/4))
+    moonPhase = "Luna: "+str(max(min(moonPhaseLuna,100),0))+'%', "Celene: "+str(max(min(moonPhaseCelene,100),0))+'%'
+    while dayCount > 0:
+        currentDay += 1
+        if currentMonth in festivals and currentDay > 7:
+            currentMonth = monthsAll[monthsAll.index(currentMonth) + 1]
+            currentDay -= 7
+        elif currentMonth == "sunsebb" and currentDay > 28:
+            currentYear += 1
+            currentMonth = "needfest"
+            currentDay -= 28
+        elif currentMonth in months and currentDay > 28:
+            currentMonth = monthsAll[monthsAll.index(currentMonth) + 1]
+            currentDay -= 28
+        dayCount -= 1
+    dayNameIndex = currentDay%7
+    return currentDay, dayNameList[dayNameIndex], currentMonth, moonPhase, currentYear
+## This function checks the neighbors of another month to map to the baseline dictionary. Accepts the month to be checked and (prev/next/this)
+## It returns a tuple containing the previous or next month and the time between day 14 between last month and the one it's asking about.
+def monthNeighbor(thisDay, thisMonth, neighbor):
+    if thisMonth == "needfest":
+        prevMonth = "sunsebb"
+    else:
+        prevMonth = monthsAll[monthsAll.index(thisMonth)-1]
+    if thisMonth == "sunsebb":
+        nextMonth = "fireseek"
+    else:
+        nextMonth = monthsAll[monthsAll.index(thisMonth)+1]
+    match neighbor:
+        case "next":
+            if thisMonth == "sunsebb":
+                return "fireseek", 35
+            elif nextMonth in festivals:
+                return monthsAll[monthsAll.index(thisMonth)+2], 35
+            else:
+                return nextMonth, 28
+        case "prev":
+            if thisMonth == "needfest":
+                return "sunsebb", 35
+            elif prevMonth in festivals:
+                return monthsAll[monthsAll.index(thisMonth)-2], 35
+            else:
+                return prevMonth, 28
+        case "this":
+            if thisMonth in festivals:
+                if thisDay > 4:
+                    return nextMonth, 35
+                elif thisMonth == "needfest":
+                    return "sunsebb", 35
+                else:
+                    return prevMonth, 35
+            else:
+                return thisMonth, 35
+        case _:
+            raise Exception("ERROR: Neighbor unrecoginzed")
+    raise Exception("ERROR: End of function")
 ## CLEAR SKY MODIFICATION
-## This is a custom function outside of the ruleset meant to make cloudy days colder and clear days warmer. The effect is mild though at at maximum of 13F/7C.
-## At the northmost it should average 5F/2C and southmost it should average 9F/5C.
+## This is a custom function outside of the ruleset meant to make cloudy days colder and clear days warmer.
 def clearSkyTempMod(skyState):
     if customTweaks == True:
         match skyState:
@@ -585,7 +632,7 @@ def seasonCheck(thisMonth):
     elif thisMonth == "coldeven":
         return "late spring"
     elif thisMonth == "growfest":
-        return "midspring festival"
+        return "spring festival"
     elif thisMonth == "planting":
         return "early low summer"
     elif thisMonth == "flocktime":
@@ -601,180 +648,44 @@ def seasonCheck(thisMonth):
     elif thisMonth == "harvester":
         return "late high summer"
     elif thisMonth == "brewfest":
-        return "midautumn festival"
+        return "autumn festival"
     elif thisMonth == "patchwall":
         return "early autumn"
     elif thisMonth == "ready'reat":
         return "late autumn"
     raise Exception("Something is wrong in seasonCheck function.")
-## This function checks the neighbors of another month to map to the baseline dictionary. Accepts the month to be checked and (prev/next/this)
-def monthNeighbor(thisMonth, neighbor, thisDay):
-    match neighbor:
-        case "next":
-            if thisMonth == "sunsebb":
-                return "fireseek"
-            elif thisMonth in festivals:
-                return monthsAll[monthsAll.index(thisMonth)+2]
-            else:
-                return months[months.index(thisMonth)+1]
-        case "prev":
-            if thisMonth == "needfest":
-                return "sunsebb"
-            elif thisMonth in festivals:
-                return monthsAll[monthsAll.index(thisMonth)-2]
-            else:
-                return months[months.index(thisMonth)-1]
-        case "this":
-            if thisMonth in festivals:
-                if thisDay > 4:
-                    return months[monthsAll.index(thisMonth)+1]
-                elif thisMonth == "needfest":
-                    return "sunsebb"
-                else:
-                    return months[monthsAll.index(thisMonth)-1]
-            else:
-                return thisMonth
-        case _:
-            raise Exception("ERROR: Neighbor unrecoginzed")
-    raise Exception("ERROR: End of function")
-## This function is meant to calculate the month from days since startdate.
-def monthDayCalc(dayCount):
-    currentDay = startingDay-1 # GLOBAL
-    currentMonth = startingMonth # GLOBAL
-    currentYear = startingYear # GLOBAL
-    moonPhaseLuna = round((math.cos(( currentDay - 18 ) * math.pi / 14 )+1)*50)
-    moonPhaseCelene = round((math.cos((currentDay-4)*math.pi/45.5)+1)*50)
-    moonPhase = str(moonPhaseLuna)+'%', str(moonPhaseCelene)+'%'
-    while dayCount > 0:
-        if currentMonth in festivals and currentDay > 7:
-            currentMonth = monthsAll[monthsAll.index(currentMonth) + 1]
-            currentDay -= 7
-        elif currentMonth == "sunsebb" and currentDay > 28:
-            currentYear += 1
-            currentMonth = "needfest"
-            currentDay -= 28
-        elif currentMonth in months and currentDay > 28:
-            currentMonth = monthsAll[monthsAll.index(currentMonth) + 1]
-            currentDay -= 28
-        currentDay += 1
-        dayCount -= 1
-    dayNameIndex = currentDay%7
-    return currentDay, dayNameList[dayNameIndex], currentMonth, moonPhase, currentYear
-print(monthDayCalc(1))
-exit()
+## CLIMATE CHECK
+## This functions simply returns the climate description depending on the latitude.
+def climateCheck(latitude):
+    if latitude >= 15 and latitude < 23:
+        return "tropic"
+    elif latitude < 35:
+        return "sub-tropic"
+    elif latitude < 45:
+        return "temperate"
+    elif latitude <= 55:
+        return "frigid"
+    raise Exception("ERROR: Could not determine climate zone")
 ## Precipitation Check
 ## This is a simpler function that just returns whenever the day should have precipitation.
-def precipCheck():
+def precipBoolCheck(thisMonth, terrain):
+    thisMonth = monthNeighbor(1, thisMonth, "this")[0]
     precipTest = random.randint(1, 100)
-    if sylvanPrompt == False:
-        precipRisk = baseline[currentmonth]["precip"]+terraindict[terrain]["precip-mod"]
-    elif sylvanPrompt == True: ## Sylvan forests have minimal precipitation risk.
-        precipRisk = (baseline[currentmonth]["precip"]+terraindict[terrain]["precip-mod"])//4
+    if sylvanBool == False:
+        precipRisk = baseline[thisMonth]["precip"]+terraindict[terrain]["precip-mod"]
+    elif sylvanBool == True: ## Sylvan forests have minimal precipitation risk.
+        precipRisk = (baseline[thisMonth]["precip"]+terraindict[terrain]["precip-mod"])//4 ## Sylvan Forests have much less risk of precipitation.
     else:
-        raise Exception("Error: sylvanPrompt returned unexpected variable, expected bool")
+        raise Exception("ERROR: sylvanBool returned unexpected variable, expected bool")
     if precipTest <= precipRisk:
         return True
     else:
         return False
-## Precipitation Type
-## Rolls a D100 and selects the precipitation from temperature values
-## Not used anymore.
-def precipTypeReverse(precipType, temperature):
-    if precipType == "heavy blizzard":
-        if temperature <= weatherdict[precipType]["maxtemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "blizzard":
-        if temperature <= weatherdict[precipType]["maxtemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "heavy snowstorm":
-        if temperature <= weatherdict[precipType]["maxtemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "light snowstorm":
-        if temperature <= weatherdict[precipType]["maxtemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "sleetstorm":
-        if temperature <= weatherdict[precipType]["maxtemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "hailstorm":
-        if temperature <= weatherdict[precipType]["maxtemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "heavy fog":
-        if temperature >= weatherdict[precipType]["mintemp"] and temperature <= weatherdict[precipType]["maxtemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "light fog":
-        if temperature >= weatherdict[precipType]["mintemp"] and temperature <= weatherdict[precipType]["maxtemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "mist":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "drizzle":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "light rainstorm":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "heavy rainstorm":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "thunderstorm":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "tropical storm":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "monsoon":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "gale":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    elif precipType == "hurricane":
-        if temperature >= weatherdict[precipType]["mintemp"]:
-            return True
-        else:
-            return False
-    else:
-        if precipType in specialweatherdict:
-            return True
-        else:
-            return False
-    raise Exception("ERROR: End of function in precipTypeReverse")
-def preciptype(temperature):
-    reroll = 24
+## This function returns specific precipitation.
+def precipTypeSelect(temperature):
+    reroll = 16 # We can set rerolls here to cut down on or increase rerolling.
     while reroll > 0:
-        precip = random.randint(1, 100)
+        precip = random.randint(1, 100) # Roll D100 to determine a random precip.
         if temperature <= weatherdict["heavy blizzard"]["maxtemp"] and precip >= 1 and precip <= 2 and terrain != "desert":
             return "heavy blizzard"
         elif temperature <= weatherdict["blizzard"]["maxtemp"] and precip >= 3 and precip <= 5 and terrain != "desert":
@@ -807,16 +718,17 @@ def preciptype(temperature):
             return "monsoon"
         elif temperature >= weatherdict["gale"]["mintemp"] and precip >= 95 and precip <= 97 and terrain not in ("desert"):
             return "gale"
-        elif temperature >= weatherdict["hurricane"]["mintemp"] and precip >= 98 and precip <= 99 and terrain not in ("desert","dust"):
-                return "hurricane"
+        elif temperature >= weatherdict["cyclone"]["mintemp"] and precip >= 98 and precip <= 99 and terrain not in ("desert","dust"):
+                return "cyclone"
         elif precip == 100:
             return "special"
         else:
             reroll -= 1
+    return "special"
     raise Exception("Maximum rerolls done, but no precipitation selected!")
 ## Special Weather
 ## Chooses a terrain and selects the special precipitation from a D100
-def specialWeatherType():
+def specialWeatherType(terrain):
     specialRoll = random.randint(1,100)
     match terrain:
         case "hills":
@@ -851,6 +763,11 @@ def specialWeatherType():
             elif specialRoll <= 70:
                 return "duststorm"
             elif specialRoll <= 85:
+                return "tornado"
+            else:
+                return "earthquake"
+        case "plains":
+            if specialRoll <= 50:
                 return "tornado"
             else:
                 return "earthquake"
@@ -890,9 +807,28 @@ def specialWeatherType():
                 return "undersea volcano"
             else:
                 return "undersea earthquake"
+    raise Exception("ERROR: End of function", terrain)
+## Causation of special weather
+def specialWeatherCause():
+    causeTest = random.randint(1,10)
+    if causeTest == 10:
+        causeTest = random.randint(1,100)
+        if causeTest >= 1 and causeTest <= 30:
+            return "elemental(s) or giant(s)"
+        elif causeTest > 30 and causeTest <= 60:
+            return "elemental(s) under NPC control"
+        elif causeTest > 60 and causeTest <= 90:
+            return "NPC or monster"
+        elif causeTest == 99:
+            return "a deity or his/her servants"
+        elif causeTest == 100:
+            return "two or more battling deites"
+    else:
+        return "natural"
+    raise Exception("ERROR: End of function")
 ## True Temperature Effects
 ## From windspeed and temperature returns a "true temperature" from a matrix
-def windchill(windspeed, temp):
+def windchillTest(windspeed, temp):
     windspeed = (windspeed//5)*5
     temp = (temp//5)*5
     if windspeed > 60:
@@ -1090,12 +1026,15 @@ def windchill(windspeed, temp):
 def precipSeq(precip):
     thisPrecip = precip
     temp = list(weatherdict)
-    continueChance = weatherdict[thisPrecip]["continue"]
+    try:
+        continueChance = weatherdict[thisPrecip]["continue"]
+    except KeyError:
+        return False, None
     if random.randint(1, 100) <= continueChance:
         continue_method = random.randint(1,10)
         if continue_method == 1 and thisPrecip not in ("heavy blizzard", "special"):
             return True, temp[temp.index(thisPrecip) - 1]
-        elif continue_method == 10 and thisPrecip not in ("hurricane", "special"):
+        elif continue_method == 10 and thisPrecip not in ("cyclone", "special"):
             return True, temp[temp.index(thisPrecip) + 1]
         else:
             return True, thisPrecip
@@ -1104,7 +1043,7 @@ def precipSeq(precip):
             return True, "rainbow"
         else:
             return False, None
-    raise Exception("ERROR: precipSeq didn't return a continuation")
+    raise Exception("ERROR: No continuation returned")
 ## Temperature type
 ## This is meant to determine stretches of cold snaps or heat waves (but not how long).
 ## It returns whenever it's normal temperature or not.
@@ -1154,7 +1093,7 @@ def temperatureDuration():
         raise Exception("Something is wrong with the tempdur function!")
 ## Determines sky conditions
 def skyGen(thisDay, thisMonth):
-    thisMonth = monthNeighbor(thisMonth, "this", thisDay)
+    thisMonth = monthNeighbor(thisDay, thisMonth, "this")[0]
     weather_rand = random.randint(1, 100)
     if weather_rand >= 1 and weather_rand <= baseline[thisMonth]["clear-upper"] :
         sky = "clear"
@@ -1172,6 +1111,54 @@ def windSpeedGen():
     if windspeed < 0:
         windspeed = 0
     return windspeed
+## This functions determines damage from windspeed
+def precipDamage(windSpeed, precipType):
+    if precipType == "cyclone":
+        return dice(1,6), "every turn"
+    elif precipType == "tornado or cyclone":
+        return dice(3,6), "every turn"
+    elif precipType in ("storm", "monsoon", "gale") and windSpeed > 40 and random.randint(1,10) == 1:
+        return dice(1,6)*(windSpeed-40)//10, "every third turn"
+    elif precipType in ("sandstorm", "duststorm") and random.randint(1,2 == 1):
+        return dice(1,4), "every third turn"
+    else:
+        return 0, "no effect"
+## This functions assigns the windspeed a beaufort classification (mph)
+def windSpeedDesc(windSpeed):
+    if windSpeed <= 1:
+        return "calm", "smoke rises vertically"
+    elif windSpeed < 3:
+        return "light air", "wind motion visible in smoke"
+    elif windSpeed < 7:
+        return "light breeze", "wind felt on exposed skins, leaves rustle"
+    elif windSpeed < 12:
+        return "gentle breeze", "leaves and smaller twigs in constant motion"
+    elif windSpeed < 18:
+        return "moderate breeze", "dust and loose paper are raised, small branches begin to move"
+    elif windSpeed < 24:
+        return "fresh breeze", "small trees begin to sway"
+    elif windSpeed < 31:
+        return "strong breeze", "large branches in motion, whistling is heard, umbrella use is difficult"
+    elif windSpeed < 38:
+        return "near gale", "whole trees in motion, some difficulty experienced walking into wind"
+    elif windSpeed < 46:
+        return "gale", "twigs and small branches break from trees, the wind speeds will make it harder for men to move"
+    elif windSpeed < 54:
+        return "strong gale", "larger branches break from trees, light structural damage"
+    elif windSpeed < 63:
+        return "storm", "trees broken and uprooted, considerable structural damage"
+    elif windSpeed < 72:
+        return "violent storm", "widespread damage to structures and vegetation, there's a risk of men being swept off their feet"
+    elif windSpeed < 95:
+        return "category 1 cyclone", "coastal flooding, toppling of small dwellings, uprooting and snapping of weak trees"
+    elif windSpeed < 110:
+        return "category 2 cyclone", "extensive damage on roofs, doors and windows, small dwellings destroyed, sea-crafts break their moorings and float out into sea"
+    elif windSpeed < 129:
+        return "category 3 cyclone", "devastating damage on small buildings to an unrepairable degree, small dwellings are destroyed, flooding near the coast is extensive even inland, a large numbers of trees are uprooted and snapped, watch out for flying debris!"
+    elif windSpeed < 156:
+        return "category 4 cyclone", "complete structural failure on small buildings, heavy and irreparable damage done on overhangs, small dwellings are completely flattened, only the hardiest trees survive, flooding is overwhelming even far inland"
+    elif windSpeed >= 157:
+        return "category 5 cyclone", "apocalyptic damage will occur, even the sturdiest roofs will fail, most small buildings are blown away, only stone buildings stand a chance of surviving and only if located inland, most coastal structures will be washed away, virtually all trees will be uprooted and swept away"
 ## Determines windspeed direction (seasonal)
 def windDirectionCheck(thisMonth):
     windTest = random.randint(1,2)
@@ -1185,40 +1172,49 @@ def windDirectionCheck(thisMonth):
             case 2: return "south-east"
     raise Exception("Something is wrong in windDirectionCheck function")
 ## This function is meant to calculate temperatures throughout the month.
-def genMonthlyTemps(dateNow, monthNow):
-    temporary = list(baseline)
-    if monthNow == "sunsebb":
-        nextMonth = "fireseek"
+def genMonthlyTemps(dateNow, thisMonth):
+    prevMonth = monthNeighbor(dateNow, thisMonth, "prev")
+    prevMonthTemp = baseline[prevMonth[0]]["base-temp"]
+    nextMonth = monthNeighbor(dateNow, thisMonth, "next")
+    nextMonthTemp = baseline[nextMonth[0]]["base-temp"]
+    if thisMonth not in festivals:
+        thisMonth = monthNeighbor(dateNow, thisMonth, "this")
+        thisMonthTemp = baseline[thisMonth[0]]["base-temp"]
     else:
-        nextMonth = temporary[temporary.index(monthNow) + 1]
-    if monthNow == "fireseek":
-        prevMonth = "sunsebb"
-    else:
-        prevMonth = temporary[temporary.index(monthNow) - 1]
-    prevMonthTemp = baseline[prevMonth]["base-temp"]
-    thisMonthTemp = baseline[monthNow]["base-temp"]
-    nextMonthTemp = baseline[nextMonth]["base-temp"]
-    #print(prevMonthTemp, thisMonthTemp, nextMonthTemp)
-    if dateNow == 14:
-        calculatedTemperature = baseline[monthNow]["base-temp"]
+        thisMonth = thisMonth, 35
+    if thisMonth[0] in festivals:
+        tempDiffRate = (nextMonthTemp - prevMonthTemp)/thisMonth[1]
+        calculatedTemperature = prevMonthTemp + (dateNow + 14) * tempDiffRate
+        if verbose:
+            print(dateNow, round(tempDiffRate,2), round(calculatedTemperature,2), dateNow + 14)
+    elif dateNow == 14:
+        calculatedTemperature = thisMonthTemp
+        if verbose:
+            print(dateNow, round(calculatedTemperature,2))
     elif dateNow > 14:
-        tempDiffRate = (nextMonthTemp - thisMonthTemp)/28
-        calculatedTemperature = thisMonthTemp + (dateNow - 14) * tempDiffRate
+        tempDiffRate = (nextMonthTemp - thisMonthTemp)/nextMonth[1]
+        calculatedTemperature = thisMonthTemp + (dateNow-14) * tempDiffRate
+        if verbose:
+            print(dateNow, round(tempDiffRate,2), round(calculatedTemperature,2), dateNow-14)
     elif dateNow < 14:
-        tempDiffRate = (thisMonthTemp - prevMonthTemp)/28
-        calculatedTemperature = thisMonthTemp + (dateNow - 14) * tempDiffRate
+        tempDiffRate = (thisMonthTemp - prevMonthTemp)/prevMonth[1]
+        calculatedTemperature = thisMonthTemp + (dateNow-14) * tempDiffRate
+        if verbose:
+            print(dateNow, round(tempDiffRate,2), round(calculatedTemperature,2), dateNow-14, prevMonth[1])
     else:
-        raise Exception("ERROR: Could now calculate monthly temperature in genMonthlyTemps()")
-    return math.ceil(calculatedTemperature)
+        raise Exception("ERROR: Could not calculate monthly temperature in genMonthlyTemps()")
+    calculatedTemperature = round(calculatedTemperature,1)
+    return calculatedTemperature
 ## This function is meant to determine today's highest and lowest temperatures.
-def genThisDayTemp(tempType, waterCurrentTemperature, mountainElevation, skyType):
+def genThisDayTemp(thisDay, thisMonth, tempType, waterCurrentTemperature, mountainElevation, latitude, terrain):
     if mountainElevation != None:
         mountainElevationNew = mountainElevation//1000
     else:
         mountainElevationNew = 0
-    basetemp = genMonthlyTemps(currentday, currentmonth)-2*(latitude-40)-3*mountainElevationNew # First we determine the baseline temperature for the day compared to the latitude and elevation (if in mountains).
-    lowtemp = baseline[currentmonth]["daily-low"]() # We roll for the daily lowest temperature by invoking this dict. We should only do this once!
-    hightemp = baseline[currentmonth]["daily-high"]() # We roll for the daily highest temperature by invoking this dict. We should only do this once!
+    basetemp = genMonthlyTemps(thisDay, thisMonth)-2*(latitude-40)-3*mountainElevationNew # First we determine the baseline temperature for the day compared to the latitude and elevation (if in mountains).
+    thisMonth = monthNeighbor(thisDay, thisMonth, "this")[0]
+    lowtemp = baseline[thisMonth]["daily-low"]() # We roll for the daily lowest temperature by invoking this dict. We should only do this once!
+    hightemp = baseline[thisMonth]["daily-high"]() # We roll for the daily highest temperature by invoking this dict. We should only do this once!
     match tempType: # Here we determine whenever we have a cold snap or heat wave and adjust the baseTempNew accordingly.
         case 1:
             baseTempNew = basetemp+3*lowtemp
@@ -1235,7 +1231,7 @@ def genThisDayTemp(tempType, waterCurrentTemperature, mountainElevation, skyType
         case 4:
             baseTempNew = basetemp
         case _:
-            raise Exception("Something is wrong with temperature calculation with genThisDayTemp")
+            raise Exception("ERROR: No extreme temp type")
     ## Calculate low and high temps ##
     ## Now that we have tested the cold snap we adjust low and high temperatures according to terrain modifiers.
     if terrain in ("desert","dust"): # These terrains have tumples of modifiers because they increase the range between coldest and warmest.
@@ -1256,14 +1252,16 @@ def genThisDayTemp(tempType, waterCurrentTemperature, mountainElevation, skyType
             lowtemp += baseTempNew
         else:
             raise Exception("Something is wrong with determining the terrain modifiers in genThisDayTemp")
-    hightemp += clearSkyTempMod(skyType)
-    return lowtemp, baseTempNew, hightemp # Now we return the modified lowest, base and highest temperatures.
+    return round(lowtemp,1), round(baseTempNew,1), round(hightemp,1) # Now we return the modified lowest, base and highest temperatures.
 ## This function generates and manages precipitation during the day and returns lists of sequences, durations and windspeeds.
 ## It also sends a start time, however it's randomly generated and because of that it's imperfect. It should start during the day when the temperature allows it.
-def genPrecip(temperature):
-    precip = preciptype(temperature)
+def genPrecip(temperature, terrain):
+    if len(temperature) != 24:
+        raise Exception("ERROR: The array passed into function is too low, expected 24 got"+str(len(temperature))+"!")
+    precipHour = int(*random.sample(range(0,23),1))
+    precip = precipTypeSelect(temperature[precipHour])
     if precip == "special":
-        event = specialWeatherType()
+        event = specialWeatherType(terrain)
         weather = event
         if event == "mirage oasis" or event == "oasis":
             event = "oasis or mirage oasis"
@@ -1275,23 +1273,29 @@ def genPrecip(temperature):
             event = "volcano"
         elif event == "undersea earthquake":
             event = "earthquake"
+        elif event == "tornado":
+            event = "tornado or cyclone"
         if specialweatherdict[event]["duration"]() == None:
             weatherDuration = 0
         else:
             weatherDuration = specialweatherdict[event]["duration"]()
-        if specialweatherdict[event]["speed"]() == None:
-            weatherDuration = 0
-        else:
-            weatherWind = specialweatherdict[event]["speed"]()
+        try:
+            if specialweatherdict[event]["speed"]() == None:
+                weatherWind = 0
+            else:
+                weatherWind = specialweatherdict[event]["speed"]()
+        except TypeError:
+            weatherWind = specialweatherdict[event]["speed"]
+        cause = specialWeatherCause()
     else:
         weather = precip
         if terrain in ("seacoast", "sea") and weather in ("light fog", "heavy fog", "mist"):
             weatherDuration = 2*weatherdict[weather]["duration"]()
-            weatherWind = weatherdict[weather]["wind"]()
         else:
             weatherDuration = weatherdict[weather]["duration"]()
-            weatherWind = weatherdict[weather]["wind"]()
-    weatherResult = [weather, weatherDuration, weatherWind]
+        weatherWind = weatherdict[weather]["wind"]()
+        cause = "natural"
+    weatherResult = [weather, weatherDuration, weatherWind, cause, precipHour]
     return weatherResult
     raise Exception("ERROR: genPrecips function was called but recorded no precipitation!")
 ## HUMIDITY CHECK
@@ -1303,48 +1307,55 @@ def humidityCheck(currentTemperature):
     else:
         humidityTest = currentTemperature+relativeHumidity
         if humidityTest >= 140 and humidityTest <= 160:
-            return relativeHumidity, 1
+            return relativeHumidity, 1, "bad"
         elif humidityTest >= 161 and humidityTest <= 180:
-            return relativeHumidity, 2
+            return relativeHumidity, 2, "terrible"
         elif humidityTest >= 181 and humidityTest <= 200:
-            return relativeHumidity, 3
+            return relativeHumidity, 3, "horrible"
         elif humidityTest > 200:
-            return relativeHumidity, 4
+            return relativeHumidity, 4, "overwhelming"
         else:
-            return relativeHumidity, 0
+            return relativeHumidity, 0, "trivial"
     raise Exception("Something went wrong with humidityCheck function.")
 # SUNRISE-SUNSET CALCULATOR
 # This function calculates the sunrise and sunset throughout any day during the the year.
-def calcSunriseSunset():
+def calcSunriseSunset(thisDay, thisMonth):
 # 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28    1  2  3  4  5  6  7  8  9 10 11 12 13 14
 #  0  1  2  3  4  5  6  7  8  9 10 11 12 12 14   15 16 17 18 19 20 21 22 23 24 25 26 27  0
-    #daysSinceLastMonth = None
-    nextMonth = monthNeighbor(currentmonth, "next", None)
-    thisMonth = monthNeighbor(currentmonth, "this", currentday)
-    prevMonth = monthNeighbor(currentmonth, "prev", None)
-    if currentday > 14:
-        sunrise1 = baseline[thisMonth]["sunrise"]
-        sunset1 = baseline[thisMonth]["sunset"]
-        daysSinceLastMonth = currentday - 14
-        sunrise2 = baseline[nextMonth]["sunrise"]
-        sunset2 = baseline[nextMonth]["sunset"]
-    elif currentday < 14:
-        sunrise2 = baseline[thisMonth]["sunrise"]
-        sunset2 = baseline[thisMonth]["sunset"]
-        sunrise1 = baseline[prevMonth]["sunrise"]
-        sunset1 = baseline[prevMonth]["sunset"]
-        daysSinceLastMonth = currentday + 13
-    else:
-        return baseline[thisMonth]["sunrise"], baseline[thisMonth]["sunset"]
+    daysSinceLastMonth = None
+    nextMonth = monthNeighbor(thisDay, thisMonth, "next")
+    prevMonth = monthNeighbor(thisDay, thisMonth, "prev")
+    thisMonth = monthNeighbor(thisDay, thisMonth, "this")
+    if thisDay > 14:
+        sunrise1 = baseline[thisMonth[0]]["sunrise"]
+        sunset1 = baseline[thisMonth[0]]["sunset"]
+        sunrise2 = baseline[nextMonth[0]]["sunrise"]
+        sunset2 = baseline[nextMonth[0]]["sunset"]
+        daysSinceLastMonth = thisDay - 14
+    elif thisDay < 14:
+        sunrise2 = baseline[thisMonth[0]]["sunrise"]
+        sunset2 = baseline[thisMonth[0]]["sunset"]
+        sunrise1 = baseline[prevMonth[0]]["sunrise"]
+        sunset1 = baseline[prevMonth[0]]["sunset"]
+        if prevMonth[1] == 28:
+            daysSinceLastMonth = thisDay + 14
+        else:
+            daysSinceLastMonth = thisDay + 21
+    elif thisDay == 14:
+        sunrise2 = baseline[thisMonth[0]]["sunrise"]
+        sunset2 = baseline[thisMonth[0]]["sunset"]
+        sunrise1 = baseline[thisMonth[0]]["sunrise"]
+        sunset1 = baseline[thisMonth[0]]["sunset"]
+        daysSinceLastMonth = thisDay - 14
     sunRiseHours1, sunRiseMinutes1 = map(int, sunrise1.split(":"))
     sunRiseHours2, sunRiseMinutes2 = map(int, sunrise2.split(":"))
     sunRiseMinutes2 += 60*sunRiseHours2
     sunRiseMinutes1 += 60*sunRiseHours1
     sunRiseMinutesDiff = sunRiseMinutes2 - sunRiseMinutes1
-    sunRiseRate = sunRiseMinutesDiff / 27
+    sunRiseRate = sunRiseMinutesDiff / prevMonth[1]
     sunriseMinutes = sunRiseMinutes1 + sunRiseRate * daysSinceLastMonth
-    sunriseHours = math.trunc(sunriseMinutes) // 60
-    sunriseRemainder = math.trunc(sunriseMinutes) % 60
+    sunriseHours = math.ceil(sunriseMinutes) // 60
+    sunriseRemainder = math.ceil(sunriseMinutes) % 60
     sunsetHours1, sunsetMinutes1 = map(int, sunset1.split(":"))
     sunsetHours2, sunsetMinutes2 = map(int, sunset2.split(":"))
     sunsetMinutes2 += 60*sunsetHours2
@@ -1352,12 +1363,12 @@ def calcSunriseSunset():
     sunsetMinutesDiff = sunsetMinutes2 - sunsetMinutes1
     sunsetRate = sunsetMinutesDiff / 27
     sunsetMinutes = sunsetMinutes1 + sunsetRate * daysSinceLastMonth
-    sunsetHours = math.trunc(sunsetMinutes) // 60
-    sunsetRemainder = math.trunc(sunsetMinutes) % 60
+    sunsetHours = math.ceil(sunsetMinutes) // 60
+    sunsetRemainder = math.ceil(sunsetMinutes) % 60
     middayMinutes = (sunsetMinutes + sunriseMinutes)/2
-    middayHours = math.trunc(middayMinutes) // 60
-    middayRemainder = math.trunc(middayMinutes) % 60
-    conclusion = [str(sunriseHours).zfill(2)+":"+str(sunriseRemainder).zfill(2), str(sunsetHours).zfill(2)+":"+str(sunsetRemainder).zfill(2), str(middayHours).zfill(2)+":"+str(middayRemainder).zfill(2)]
+    middayHours = math.ceil(middayMinutes) // 60
+    middayRemainder = math.ceil(middayMinutes) % 60
+    conclusion = str(sunriseHours).zfill(2)+":"+str(sunriseRemainder).zfill(2), str(sunsetHours).zfill(2)+":"+str(sunsetRemainder).zfill(2), str(middayHours).zfill(2)+":"+str(middayRemainder).zfill(2)
     return conclusion
 ## Generate temperature over the hours.
 def genHoursTemp(hightempPrev, lowtemp, lowtempNext, hightemp, sunriseSunset):
@@ -1391,8 +1402,51 @@ def genHoursTemp(hightempPrev, lowtemp, lowtempNext, hightemp, sunriseSunset):
             thisHour = 0
         hourGen += 1
     return hourlyTempSeq
+def genMonth(thisDay, thisMonth, tempType, terrain):
+    conclusion = None
+    waterCurrentTemperature = None
+    mountainElevation = None
+    winddirection = windDirectionCheck(thisMonth)
+    skyType = skyGen(thisDay, thisMonth)
+    prevDayTemp = genThisDayTemp(thisDay-1, thisMonth, tempType, waterCurrentTemperature, mountainElevation, latitude, skyType)
+    nextDayTemp = genThisDayTemp(thisDay+1, thisMonth, tempType, waterCurrentTemperature, mountainElevation, latitude, skyType)
+    thisDayTemp = genThisDayTemp(thisDay, thisMonth, tempType, waterCurrentTemperature, mountainElevation, latitude, skyType)
+    dayTemp = prevDayTemp[0], thisDayTemp[0], nextDayTemp[2], thisDayTemp[2]
+    dayDetails = genDay(thisDay, thisMonth, dayTemp, terrain)
+    conclusion = winddirection, skyType, dayDetails
+    return conclusion
+## This function is meant to determine the conditions for the day.
+## Expects a list of yesterday high temperature, today high and low and tomorrows low temperature.
+def genDay(thisDay, thisMonth, terrain):
+    # Calculate the sunset and sunrise for the day.
+    sunriseSunset = calcSunriseSunset(thisDay, thisMonth)
+    # Generate sky conditions
+    windspeed = windSpeedGen()
+    return conclusion
+## Generate the conditions for the hours
+def genHour(temperature, windspeed):
+    windchill = 100000
+    humidity = None, 0, None
+    heatcramps = None
+    frostbiteBool = False
+    sunstrokeBool = (False, None)
+    precipitationContinue = False
+    if temperature < 35 and windspeed > 5:
+        windchill = windchillTest(windspeed, temperature)
+    if temperature < -40 or windchill < -40:
+        frostbiteBool = True
+    if temperature > 75:
+        humidity = humidityCheck(temperature)
+        sunstrokeBool = (True, "mild")
+        if temperature > 120:
+            heatcramps = 12+( ( temperature - 120 ) // 10 )
+            if temperature+humidity[0] > 200:
+                sunstrokeBool = (True, "severe")
+        elif temperature > 100:
+            heatCrampsString = 12
+    return windchill, humidity, heatcramps, frostbiteBool, sunstrokeBool
 ## Presentation function
-## This function is meant to present and structure strings to the viewer.
+## This function is meant to present and structure strings to the view7er.
 def conclusionPresentation(sequenceDict, thisTerrain):
     precipStartBool = False
     precipDuration = 0
@@ -1488,68 +1542,179 @@ def conclusionPresentation(sequenceDict, thisTerrain):
                 currentWindSpeed = precipWind
             else:
                 currentWindSpeed = normalWind
-            if tempHour < 35 and currentWindSpeed > 5:
-                windChillString = "The chilling wind will feel like "+tempConvert(windchill(currentWindSpeed, tempHour))+"!"
-            if tempHour > 75:
-                humidityResult = humidityCheck(tempHour)
-                match humidityResult[1]:
-                    case 0: humidityMag = "trivial"
-                    case 1: humidityMag = "bad"
-                    case 2: humidityMag = "terrible"
-                    case 3: humidityMag = "horrible"
-                    case 4: humidityMag = "overwhelming"
-                if humidityResult[1] > 0:
-                    humidityString = "The relative humidity is "+str(humidityResult[0])+"% and it's "+humidityMag+" ("+str(humidityResult[1])+")!"
-            if tempHour > 120:
-                heatCrampsString = "There's a high risk of heat cramps! Affects CON below "+str(12+(tempHour-120)//10)
-            elif tempHour > 100:
-                heatCrampsString = "There's a high risk of heat cramps! Affects CON below "+str(12)
-            if tempHour < -40:
-                frostBiteString = "There's a high risk of frostbite!"
             print("The time is "+hourConvert(thisHour)+" and the temperature is "+tempConvert(tempHour)+".", windChillString, heatCrampsString, frostBiteString, humidityString, precipString)
 
             thisHour += 1
         iteration += 1
-def generateEverything(days):
-    pass
+## This function is meant to work out the days range we're looking for
+def dayCountFromStart(startDay, startMonth):
+    daysReturn = 0
+    for monthName in monthsAll:
+        if monthName == startMonth:
+            break
+        elif monthName in festivals:
+            daysReturn += 7
+        elif monthName in months:
+            daysReturn += 28
+        else:
+            raise Exception("ERROR: Couldn't determine month")
+    daysReturn += startDay
+    return int(daysReturn)
+## This function is meant to generate everything
+def generateEverything(startMonth, startDay, daysToGen, latitude, terrain):
+    waterCurrentTemperature = None
+    mountainElevation = None
+    conclusion = None
+    tempDuration = 0
+    tempType = 4, "normal"
+    calendarSeq = []
+    dailyTempSeq = []
+    skySeq = []
+    windSeq = []
+    dailyHourlyTempSeq = []
+    sunriseSunsetSeq = []
+    dayCount = dayCountFromStart(startDay, startMonth)
+    endDate = daysToGen+dayCount
+    while dayCount < endDate: # Populate the sequence of the calendar
+        calendarSeq.append(monthDayCalc(dayCount))
+        dayCount += 1
+    for dayDetail in calendarSeq:
+        if tempDuration > 0:
+            tempDuration -= 1
+        elif tempDuration <= 0:
+            tempType = temperatureType()
+            if tempType[0] != 4:
+                tempDuration = temperatureDuration()
+        dailyTemp = genThisDayTemp(dayDetail[0], dayDetail[2], tempType[0], waterCurrentTemperature, mountainElevation, latitude, terrain)
+        dailyTempSeq.append( dailyTemp )
+        skySeq.append( skyGen(dayDetail[0], dayDetail[2]) )
+        windSeq.append( windSpeedGen() )
+        sunriseSunsetSeq.append(calcSunriseSunset(dayDetail[0], dayDetail[2]))
+    dayIteration = 0
+    while dayIteration < daysToGen:
+        if dayIteration+1 == daysToGen:
+            dailyHourlyTempSeq.append(genHoursTemp(dailyTempSeq[dayIteration-1][2], dailyTempSeq[dayIteration][0], dailyTempSeq[dayIteration][0],   dailyTempSeq[dayIteration][2], sunriseSunsetSeq[dayIteration]))
+        elif dayIteration <= 0:
+            dailyHourlyTempSeq.append(genHoursTemp(dailyTempSeq[dayIteration][2],   dailyTempSeq[dayIteration][0], dailyTempSeq[dayIteration+1][0], dailyTempSeq[dayIteration][2], sunriseSunsetSeq[dayIteration]))
+        else:
+            dailyHourlyTempSeq.append(genHoursTemp(dailyTempSeq[dayIteration-1][2], dailyTempSeq[dayIteration][0], dailyTempSeq[dayIteration+1][0], dailyTempSeq[dayIteration][2], sunriseSunsetSeq[dayIteration]))
+        dayIteration += 1
+    # precipDuration = 0
+    # continuePrecip = False, None
+    # for day in dailyHourlyTempSeq:
+    #     daySeqIndex = dailyHourlyTempSeq.index(day)
+    #     thisMonth = calendarSeq[daySeqIndex][2]
+    #     if precipDuration <= 0:
+    #         if precipBoolCheck(thisMonth, terrain): # Is there precipitation today?
+    #             todayPrecip = genPrecip(day, terrain)
+    #             continuePrecip = precipSeq(todayPrecip[0]) # Will this continue?
+    #             if terrain in ("seacoast", "sea") and continuePrecip[1] in ("light fog", "heavy fog", "mist"):
+    #                 weatherDuration = 2*weatherdict[todayPrecip[0]]["duration"]()
+    #             else:
+    #                 weatherDuration = weatherdict[todayPrecip[0]]["duration"]()
+    #             precipDuration = todayPrecip[4]+todayPrecip[1]+weatherDuration
+    #             print(todayPrecip, continuePrecip, precipDuration, "hours.")
+    #         else:
+    #             print("No precipitation today...")
+    #     else:
+    #         print("Precipitation from yesterday continues today...", todayPrecip[0])
+    #     precipDuration -= 24
+    #     if precipDuration > 0 and precipDuration <= 24:
+    #         print("The precipitation ends at "+str(24-precipDuration)+":00")
+    conclusion = calendarSeq, skySeq, windSeq, dailyHourlyTempSeq
+    return conclusion
+def presentationFunction(conclusionMatrix, thisTerrain):
+    precipStartedCheck = False
+    thisDay = 0
+    while thisDay < len(conclusionMatrix[0]):
+        daySummaryString = "---------------------------------\nDate: "+str(conclusionMatrix[0][thisDay][1][0]).capitalize()+" "+str(conclusionMatrix[0][thisDay][0])+" of "+str(conclusionMatrix[0][thisDay][2]).capitalize()+", common year "+str(conclusionMatrix[0][thisDay][4])+". It's a "+str(conclusionMatrix[0][thisDay][1][1])+" day.\nThe moons are currently in this state: "+str(conclusionMatrix[0][thisDay][3])+"\nThe weather will be "+str(conclusionMatrix[1][thisDay])+" and the windspeed will be a "+windSpeedDesc(conclusionMatrix[2][thisDay])[0]+' at '+str(conclusionMatrix[2][thisDay])+" mph."
+        if precipStartedCheck:
+            pass
+        else:
+            precipDayBool = precipBoolCheck(conclusionMatrix[0][thisDay][2], thisTerrain)
+        if precipDayBool:
+            todaysPrecip = genPrecip(conclusionMatrix[3][thisDay], thisTerrain)
+            precipDuration = todaysPrecip[1]
+            precipWindspeed = todaysPrecip[2]
+            daySummaryString += "\nWe'll be seeing a "+todaysPrecip[0]+" and the wind will change to a "+windSpeedDesc(precipWindspeed)[0]+" at "+str(precipWindspeed)+" mph."
+        print(daySummaryString+'\n')
+        thisHour = 0
+        while thisHour < len(conclusionMatrix[3][thisDay]):
+            dailyTemp = conclusionMatrix[3][thisDay][thisHour]
+            extendedHourStats = genHour(dailyTemp, conclusionMatrix[2][thisDay])
+            fullString = hourConvert(thisHour)
+            if extendedHourStats[0] < dailyTemp:
+                fullString += ", Windchill("+tempConvert(extendedHourStats[0])+')'
+            else:
+                fullString += ' '+tempConvert(dailyTemp)
+            if extendedHourStats[3]:
+                fullString += " There's a risk of frostbite!"
+            if extendedHourStats[2] != None:
+                fullString += " Heatcramps CON ("+str(extendedHourStats[2])+')'
+            if extendedHourStats[4][0]:
+                fullString += " There's a risk of "+extendedHourStats[4][1]+" sunstroke."
+            if extendedHourStats[1][1] > 0:
+                fullString += " The humidity will be "+extendedHourStats[1][2]+'.'
+            if precipDayBool and thisHour == todaysPrecip[4]:
+                fullString += " The "+todaysPrecip[0]+" starts now."
+                precipStartedCheck = True
+                precipDayBool = False
+            if precipStartedCheck and precipDuration <= 0:
+                continueResult = precipSeq(todaysPrecip[0])
+                if continueResult[0] and continueResult[1] == "rainbow":
+                    fullString += " The "+todaysPrecip[0]+" ends now and a pretty rainbow appears."
+                    precipStartedCheck = False
+                elif continueResult[0]:
+                    if continueResult[1] != todaysPrecip[0]:
+                        fullString += " The precipiation changes into a "+continueResult[1]+'.'
+                    precipDuration += weatherdict[continueResult[1]]["duration"]()
+                else:
+                    fullString += " The "+todaysPrecip[0]+" ends now."
+                    precipStartedCheck = False
+            print(fullString)
+            if precipStartedCheck and precipDuration > 0:
+                precipDuration -= 1
+            thisHour += 1
+        thisDay += 1
 #############
 ## QUERIES ##
 #############
 def startMonthQuery():
-    print("What month is it?")
-    print("Possible months:", monthsAll)
+    print("What month is it?\nPossible months:", monthsAll, "\nPress enter for random")
     while True:
-        if debug:
-            startingMonth = random.choice(monthsAll)
-            break
-        else:
-            startingMonth = input().lower()
+        startingMonth = input().lower()
         if startingMonth in monthsAll:
             break
         elif startingMonth == "":
             startingMonth = random.choice(monthsAll)
+            print("Randomly selected "+startingMonth+" as the starting month.")
             break
         else:
-            print("This month doesn't exist, use one from the list.")
+            print("This month doesn't exist, use one from the list or leave empty for random.")
             continue
-def startDayQuery():
+    return startingMonth
+def startDayQuery(monthSelected):
     print("What day should we start at?")
     while True:
-        if debug:
+        startingDaySelect = input()
+        if startingDaySelect == "" and monthSelected in months:
             startingDay = random.randint(1,28)
+            print("Randomly selected "+str(startingDay)+" as the starting day.")
             break
-        else:
-            startingDaySelect = input()
-        if startingDaySelect == "":
-            startingDay = random.randint(1,28)
+        elif startingDaySelect == "" and monthSelected in festivals:
+            startingDay = random.randint(1,7)
+            print("Randomly selected "+str(startingDay)+" as the starting day.")
             break
         try:
             startingDay = int(startingDaySelect)
         except ValueError:
             print("Looks like you haven't put in an integer, please do so.")
             continue
-        if startingDay < 1 or startingDay > 28:
-            print("Only 1-28 are valid.")
+        if monthSelected in months and startingDay < 1 or startingDay > 28:
+            print("Only 1-28 are valid for "+monthSelected)
+            continue
+        elif monthSelected in festivals and startingDay < 1 or startingDay > 7:
+            print("Only 1-7 are valid for "+monthSelected)
             continue
         else:
             break
@@ -1559,16 +1724,17 @@ def genDaysQuery():
     while True:
         if debug:
             daysGenInput = 2
-            return daysGenInput+currentday
+            return daysGenInput
             break
         else:
             daysGenInput = input()
         if daysGenInput == "":
             daysGenInput = random.randint(1,3)*7
-            return daysGenInput+currentday
+            print("Randomly selected "+str(daysGenInput)+" days to generate.")
+            return daysGenInput
             break
         try:
-            return int(daysGenInput)+currentday
+            return int(daysGenInput)
         except ValueError:
             print("Looks like you haven't put in an integer, please do so.")
             continue
@@ -1581,23 +1747,20 @@ def genDaysQuery():
 def latitudeQuery():
     print("What latitude are they players at (15 - 55)?")
     while True:
-        if debug:
-            return random.randint(15,55)
-            break
-        else:
-            latitudeSelect = input()
+        latitudeSelect = input()
         if latitudeSelect == "":
             return random.randint(15,55)
             break
         try:
-            return int(latitudeSelect)
+            int(latitudeSelect)
         except ValueError:
             print("Looks like you haven't put in an integer, please do so.")
             continue
-        if latitudeSelect < 15 or latitudeSelect > 55:
+        if int(latitudeSelect) < 15 or int(latitudeSelect) > 55:
             print("Your party is out of bounds with the map then, try again.")
         else:
             break
+    return int(latitudeSelect)
 def terrainQuery():
     print("What's the terrain?")
     print("Possible terrains:", terrainTypes)
@@ -1648,18 +1811,39 @@ def terrainQuery():
         else:
             print("Please write either y or n.")
             continue
-if debug == False:
-    currentmonth = startMonthQuery()
-    currentday = startDayQuery()
-    daysGenInput = genDaysQuery()
+    return terrainPrompt
+###########
+## START ##
+###########
+if debug == False: # We only query for months if debug is set as off.
+    startMonth = startMonthQuery()
+    startDay = startDayQuery(startMonth)
+    daysToGen = genDaysQuery()
     latitude = latitudeQuery()
     terrain = terrainQuery()
-else:
-    currentmonth = "needfest"
-    currentday = 1
-    daysGenInput = 2
-    latitude = 40
+else: # When debug is on, we set the parameters automatically or randomly.
+    startMonth = str(*random.sample(monthsAll, 1))
+    startDay = random.randint(1,7)
+    daysToGen = 15
+    latitude = random.randint(15,55)
     terrain = "plains"
+if int(daysToGen) < 7:
+    genDayString = "Generating "+str(daysToGen)+" days of weather"
+elif int(daysToGen) >= 7 and int(daysToGen) < 56:
+    genDayString = "Generating "+str(int(daysToGen)//7)+" weeks of weather"
+elif int(daysToGen) >= 56 and int(daysToGen) < 672:
+    genDayString = "Generating "+str(int(daysToGen)//28)+" months of weather"
+elif int(daysToGen) >= 672:
+    genDayString = "Generating "+str(int(daysToGen)//336)+" years of weather"
+else:
+    raise Exception("ERROR: Could not determine magnitude of generation in days!")
+summaryString = "Summary: "+genDayString+" after "+str(startDay)+" of "+str(startMonth)+" ("+str(seasonCheck(startMonth))+"), common year 576. The location is "+str(terrain)+" at "+str(latitude)+u'\N{DEGREE SIGN}'+"N ("+str(climateCheck(latitude))+" climate)."
+print(summaryString)
+fullDict = generateEverything(startMonth, startDay, daysToGen, latitude, terrain)
+presentationFunction(fullDict, terrain)
+print("End of script!")
+exit()
+## END HERE
 gendays = daysGenInput
 iteration = currentday
 extremeTempType = [4, "normal"]
@@ -1674,16 +1858,7 @@ windSpeedSeq = []
 dailyHourlyTempSeq = []
 sunriseSunsetSeq = []
 everySingleSeq = [dateSeq, monthSeq, highTempSeq, lowTempSeq, skySeq, windSpeedSeq, dailyHourlyTempSeq, sunriseSunsetSeq]
-if int(daysGenInput) < 7:
-    print("Generating "+str(daysGenInput)+" days of weather...")
-elif int(daysGenInput) >= 7 and int(daysGenInput) < 56:
-    print("Generating "+str(int(daysGenInput)//7)+" weeks of weather...")
-elif int(daysGenInput) >= 56 and int(daysGenInput) < 672:
-    print("Generating "+str(int(daysGenInput)//28)+" months of weather...")
-elif int(daysGenInput) >= 672:
-    print("Generating "+str(int(daysGenInput)//336)+" years of weather...")
-else:
-    raise Exception("ERROR: Could not determine magnitude of generation in days!")
+
 ## This very important while loop tries to calculate values throughout the generation
 while iteration < gendays:
     dateSeq.append(currentday)
